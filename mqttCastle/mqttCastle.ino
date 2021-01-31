@@ -103,123 +103,124 @@ void render()
 {
   for (int payload = 0; payload < anzahllampen; payload++)
   {
-    mcpSelect[payload / 16]->digitalWrite(payload % 16, lampstate[payload]); //auf MCP schreiben/Relais ansteuern
-  
+    mcpSelect[payload / 16].digitalWrite(payload % 16, lampstate[payload]); //auf MCP schreiben/Relais ansteuern
+
     if (lampstate[payload])
     {
       mqttClient.publish("/lc/output/ack/on", payloadraw, length);//FIXME: payload statt payloadraw
-    }else{
+    } else {
       mqttClient.publish("/lc/output/ack/off", payloadraw, length);
     }
   }
+}
 
-  //werte konvertieren auf richtigen dateitypen
-  void convert(char *topicchar, byte * payloadbyte, unsigned int length)
+//werte konvertieren auf richtigen dateitypen
+void convert(char *topicchar, byte * payloadbyte, unsigned int length)
+{
+  String topic(topicchar);             //topic in string verwandeln
+  payloadraw = (byte *)malloc(length); //payload erstellen
+  memcpy(payloadraw, payloadbyte, length);
+  String value = ""; //payload in int verwandeln für weiterverarbeitung
+  for (unsigned int i = 0; i < length; i++)
   {
-    String topic(topicchar);             //topic in string verwandeln
-    payloadraw = (byte *)malloc(length); //payload erstellen
-    memcpy(payloadraw, payloadbyte, length);
-    String value = ""; //payload in int verwandeln für weiterverarbeitung
-    for (unsigned int i = 0; i < length; i++)
-    {
-      value += (char)payloadbyte[i];
-    }
-    payload = value.toInt();
+    value += (char)payloadbyte[i];
   }
+  payload = value.toInt();
+}
 
-  void setup()
+void setup()
+{
+  Ethernet.begin(mac, ip);
+  //Serial.begin(9600);
+  //TODO:sicher machen wenns scheat
+  mqttClient.setServer(server, 1883);
+  mqttClient.setCallback(getMqtt);
+  //kommunikation und pinMode festlegen bzw. starten
+  for (int i = 0; i < anzahlmcps; i++)
   {
-    Ethernet.begin(mac, ip);
-    //Serial.begin(9600);
-    //TODO:sicher machen wenns scheat
-    mqttClient.setServer(server, 1883);
-    mqttClient.setCallback(getMqtt);
-    //kommunikation und pinMode festlegen bzw. starten
-    for (int i = 0; i < anzahlmcps; i++)
-    {
-      mcpout(i).begin();
-      mcpout(i).pinMode(0B1111111111111111);
-    }
+    mcpout(i).begin();
+    mcpout(i).pinMode(0B1111111111111111);
   }
-  //mqtt client
-  void loop()
+}
+//mqtt client
+void loop()
+{
+  reconnectMQTT();
+  mqttClient.loop();
+}
+
+void (*effektSelect[anzahleffekte]) = {
+  effekt0,
+  effekt1,
+  effekt2,
+  effekt3,
+  effekt4,
+  effekt5
+};
+void effekte(unsigned int payload)
+{
+  effekt0();
+  (*effektSelect[payload])();
+  mqttClient.publish("/lc/output/effekte", payloadraw, length); //payloadraw=byte* BESTÄTIGUNG
+}
+//Effekte
+void effekt0() //effekt 0 schaltet alles aus
+{
+  lampstate[anzahllampen] = {0};
+  render();
+}
+
+void effekt1()
+{
+  for (int i = 0; i < anzahllampen; i++)
   {
-    reconnectMQTT();
+    i = constrain(i++, 0, anzahllampen - 1);
+    lampstate[i++] = HIGH;
+    lampstate[i] = LOW;
+    effektdelay(1000);
+    render();
+  }
+}
+
+void effekt2()
+{
+  for (int i = 0; i < anzahllampen; i + 2)
+  {
+    i = constrain(i, 0, anzahllampen - 1);
+    lampstate[i] = HIGH;
+  }
+  render();
+  effektdelay(1000);
+  for (int i = 0; i < anzahllampen; i + 2)
+  {
+    i = constrain(i, 0, anzahllampen - 1);
+    lampstate[i] = LOW;
+  }
+  render();
+}
+void effekt3()
+{
+
+  render();
+}
+
+void effekt4()
+{
+
+  render();
+}
+
+void effekt5()
+{
+
+  render();
+}
+
+void effektdelay(unsigned long delaytime)
+{
+  long startmillis = millis();
+  while ((millis() - startmillis) < delaytime)
+  {
     mqttClient.loop();
   }
-
-  void (*effektSelect[anzahleffekte])={
-    effekt0,
-    effekt1,
-    effekt2,
-    effekt3,
-    effekt4,
-    effekt5
-  };
-  void effekte(unsigned int payload)
-  {
-    effekt0();
-    (*effektSelect[payload])();
-    mqttClient.publish("/lc/output/effekte", payloadraw, length); //payloadraw=byte* BESTÄTIGUNG
-  }
-  //Effekte
-  void effekt0() //effekt 0 schaltet alles aus
-  {
-    lampstate[anzahllampen] = {0};
-    render();
-  }
-
-  void effekt1()
-  {
-    for (int i = 0; i < anzahllampen; i++)
-    {
-      i = constrain(i++, 0, anzahllampen - 1);
-      lampstate[i++] = HIGH;
-      lampstate[i] = LOW;
-      effektdelay(1000);
-      render();
-    }
-  }
-
-  void effekt2()
-  {
-    for (int i = 0; i < anzahllampen; i + 2)
-    {
-      i = constrain(i, 0, anzahllampen - 1);
-      lampstate[i] = HIGH;
-    }
-    render();
-    effektdelay(1000);
-    for (int i = 0; i < anzahllampen; i + 2)
-    {
-      i = constrain(i, 0, anzahllampen - 1);
-      lampstate[i] = LOW;
-    }
-    render();
-  }
-  void effekt3()
-  {
-
-    render();
-  }
-
-  void effekt4()
-  {
-
-    render();
-  }
-
-  void effekt5()
-  {
-
-    render();
-  }
-
-  void effektdelay(unsigned long delaytime)
-  {
-    long startmillis = millis();
-    while ((millis() - startmillis) < delaytime)
-    {
-      mqttClient.loop();
-    }
-  }
+}
