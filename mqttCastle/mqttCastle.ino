@@ -1,7 +1,7 @@
 /*
-    Name:       Mqtt.ino
+    Name:     Mqtt.ino
     Created:  27.02.2019 17:30:03
-    Author:     Mandl-PC\Philipp
+    Author:   Mandl-PC\Philipp
 */
 
 #include <PubSubClient.h>
@@ -47,36 +47,38 @@ struct mcp
   int pin;
 };
 
+
+
 //Funktion wird aufgerufen wenn msg ankommt
 
 void getMqtt(char *topicchar, byte *payloadbyte, unsigned int length)
 {
   convert(topicchar, payloadbyte, length);
-  Serial.print("Nachricht angekommen: ");
-  Serial.println(topic);
-  Serial.println(payload);
+  //Serial.print("Nachricht angekommen: ");
+  //Serial.println(topic);
+  //Serial.println(payload);
   payload = constrain(payload, 0, anzahllampen - 1); //für website nur zahlen zwischen 0-119 möglich
-  if (topic == "/lc/par36/on")
+  if (topic == "/lc/output/on")
   {
     lampstate[payload] = HIGH;
     render();
   }
-  else if (topic == "/lc/par36/off")
+  else if (topic == "/lc/output/off")
   {
     lampstate[payload] = LOW;
     render();
   }
-  else if (topic == "/lc/par36/")
+  else if (topic == "/lc/output/")
   {
     mqttClient.publish("/status/arduino", "1");
   }
-  else if (topic == "/lc/par36/effekte")
+  else if (topic == "/lc/output/effekte")
   {
     payload = constrain(payload, 0, anzahleffekte); //für website nur effekte zwischen 0-6 möglich
     effekte(payload);
   }
-  Serial.println(payload + " ist ");
-  Serial.print(mcpout(detMCP(payload).no).digitalRead(detMCP(payload).pin));
+  //Serial.println(payload + " ist ");
+  //Serial.print(mcpout(detMCP(payload).no).digitalRead(detMCP(payload).pin));
 }
 
 //umrechnung von payload zu mcpx und pin y
@@ -95,7 +97,7 @@ void reconnectMQTT()
   {
     if (mqttClient.connect("ArduinoClient", "webclient", "passwort"))
     {
-      Serial.println("connected...");
+      //Serial.println("connected...");
       mqttClient.subscribe("/lc/#");
       mqttClient.subscribe("/status/#");
       mqttClient.publish("/status/arduino", "1");
@@ -115,12 +117,12 @@ void render()
     if (lampstate[payload])
     {
       mcpout(detMCP(payload).no).digitalWrite(detMCP(payload).pin, HIGH); //auf MCP schreiben/Relais ansteuern
-      mqttClient.publish("/lc/par36/ack/on", payloadraw, length);         //payloadraw=byte* BESTÄTIGUNG
+      mqttClient.publish("/lc/output/ack/on", payloadraw, length);         //payloadraw=byte* BESTÄTIGUNG
     }
     else if (!lampstate[payload])
     {
       mcpout(detMCP(payload).no).digitalWrite(detMCP(payload).pin, LOW);
-      mqttClient.publish("/lc/par36/ack/on", payloadraw, length);
+      mqttClient.publish("/lc/output/ack/on", payloadraw, length);
     }
   }
 }
@@ -142,7 +144,7 @@ void convert(char *topicchar, byte *payloadbyte, unsigned int length)
 void setup()
 {
   Ethernet.begin(mac, ip);
-  Serial.begin(9600);
+  //Serial.begin(9600);
   //TODO:sicher machen wenns scheat
   mqttClient.setServer(server, 1883);
   mqttClient.setCallback(getMqtt);
@@ -188,7 +190,7 @@ MCP mcpout(int cur)
 }
 void effekte(unsigned int payload)
 {
-  mqttClient.publish("/lc/par36/effekte", payloadraw, length); //payloadraw=byte* BESTÄTIGUNG
+  mqttClient.publish("/lc/output/effekte", payloadraw, length); //payloadraw=byte* BESTÄTIGUNG
   switch (payload)
   {
   case 0:
@@ -216,16 +218,6 @@ void effekte(unsigned int payload)
     break;
   }
 }
-
-/* ignorierts es afoch
-  FFFFFFFFFF      A        IIIII   L         EEEEEEEE  DDDDDDD
-  F              A A         I     L         E         D      D
-  F             A   A        I     L         E         D       D
-  FFFFFFFFF    AAAAAAA       I     L         EEEEEEEE  D       D
-  F           A       A      I     L         E         D       D
-  F          A         A     I     L         E         D      D
-  F         A           A  IIIII   LLLLLLLL  EEEEEEEE  DDDDDDD
-*/
 //Effekte
 void effekt0() //effekt 0 schaltet alles aus
 {
