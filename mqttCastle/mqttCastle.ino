@@ -4,6 +4,13 @@
     Changed:  31.01.2021 18:00:00
     Author:   Mandl-PC\Philipp
 */
+/*
+https://arduino-projekte.info/https-ssl-seiten-mit-arduino-eps8266-aufrufen/
+<WiFiClientSecure.h>
+2. Der WiFiClient client; Befehl durch den WiFiClientSecure client; Befehlt ersetzt werden.
+3. Der Port muss von 80 auf 443 geändert werden.
+4. Man muss dem Arduino / EPS8266 das Sicherheitszertifikat mitteilen. Das macht man mit dem Befehlt client.setFingerprint(fingerprint);*/
+
 
 #include <PubSubClient.h>
 #include <Ethernet.h>
@@ -51,31 +58,34 @@ MCP mcpSelect[anzahlmcps] = {
 void getMqtt(char *topicchar, byte *payloadbyte, unsigned int length)
 {
   convert(topicchar, payloadbyte, length);
-  //Serial.print("Nachricht angekommen: ");
-  //Serial.println(topic);
-  //Serial.println(payload);
+  Serial.print("Nachricht angekommen: ");
+  Serial.println(topic);
+  Serial.println(payload);
   payload = constrain(payload, 0, anzahllampen - 1); //für website nur zahlen zwischen 0-119 möglich
   if (topic == "/lc/output/on")
   {
     lampstate[payload] = HIGH;
-    render();
+    render(payload);
   }
   else if (topic == "/lc/output/off")
   {
     lampstate[payload] = LOW;
-    render();
+    render(payload);
+  }
+  else if (topic == "/lc/output/effekte")
+  {
+    Serial.println("effekt");
+    payload = constrain(payload, 0, anzahleffekte); //für website nur effekte zwischen 0-6 möglich
+    char* toSend = malloc(2);
+    itoa(payload, toSend, 10);
+    mqttClient.publish("/lc/output/ack/effekte", toSend);
+    free(toSend);
+    effekte();
   }
   else if (topic == "/lc/output/")
   {
     mqttClient.publish("/status/arduino", "1");
   }
-  else if (topic == "/lc/output/effekte")
-  {
-    payload = constrain(payload, 0, anzahleffekte); //für website nur effekte zwischen 0-6 möglich
-    effekte(payload);
-  }
-  //Serial.println(payload + " ist ");
-  //Serial.print(mcpout(detMCP(payload).no).digitalRead(detMCP(payload).pin));
 }
 
 
@@ -86,38 +96,50 @@ void reconnectMQTT()
   {
     if (mqttClient.connect("ArduinoClient", "webclient", "passwort"))
     {
-      //Serial.println("connected...");
+      Serial.println("connected...");
       mqttClient.subscribe("/lc/#");
       mqttClient.subscribe("/status/#");
       mqttClient.publish("/status/arduino", "1");
     }
     else
     {
+      Serial.println("connecting...");
       delay(1000);
     }
   }
 }
 
 //Funktion die auf mcp schreibt und bestätigung sendet
+//spricht nur einen pin an
+void render(uint8_t toRender)
+{
+  char* toSend = malloc(3);
+  itoa(toRender, toSend, 10);
+  mcpSelect[toRender%16].digitalWrite(toRender%16, lampstate[toRender]);
+
+  if(lampstate[toRender])
+    mqttClient.publish("/lc/output/ack/on", toSend);
+  else
+    mqttClient.publish("/lc/output/ack/off", toSend);
+  
+  Serial.print("/lc/output/ack/" + lampstate[toRender] ? "on" : "off");
+  Serial.println(toSend);
+  free(toSend);
+}
+
+//spricht alle pins an
 void render()
 {
-  for (int payload = 0; payload < anzahllampen; payload++)
+  for (uint8_t i = 0; i < anzahllampen; i++)
   {
-    mcpSelect[payload / 16].digitalWrite(payload % 16, lampstate[payload]); //auf MCP schreiben/Relais ansteuern
-
-    if (lampstate[payload])
-    {
-      mqttClient.publish("/lc/output/ack/on", payloadraw, length);//FIXME: payload statt payloadraw
-    } else {
-      mqttClient.publish("/lc/output/ack/off", payloadraw, length);
-    }
+    mcpSelect[i/16].digitalWrite(i%16, lampstate[i]);
+    mqttClient.publish("/lc/output/ack/" + lampstate[i]?"on":"off", i);
   }
 }
 
 //werte konvertieren auf richtigen dateitypen
 void convert(char *topicchar, byte * payloadbyte, unsigned int length)
 {
-  String topic(topicchar);             //topic in string verwandeln
   payloadraw = (byte *)malloc(length); //payload erstellen
   memcpy(payloadraw, payloadbyte, length);
   String value = ""; //payload in int verwandeln für weiterverarbeitung
@@ -126,20 +148,21 @@ void convert(char *topicchar, byte * payloadbyte, unsigned int length)
     value += (char)payloadbyte[i];
   }
   payload = value.toInt();
+  topic = topicchar;
 }
 
 void setup()
 {
   Ethernet.begin(mac, ip);
-  //Serial.begin(9600);
+  Serial.begin(9600);
   //TODO:sicher machen wenns scheat
   mqttClient.setServer(server, 1883);
   mqttClient.setCallback(getMqtt);
   //kommunikation und pinMode festlegen bzw. starten
   for (int i = 0; i < anzahlmcps; i++)
   {
-    mcpout(i).begin();
-    mcpout(i).pinMode(0B1111111111111111);
+    mcpSelect[i].begin();
+    mcpSelect[i].pinMode(0B1111111111111111);
   }
 }
 //mqtt client
@@ -149,7 +172,7 @@ void loop()
   mqttClient.loop();
 }
 
-void (*effektSelect[anzahleffekte]) = {
+void (*effektSelect[anzahleffekte]) ()= {
   effekt0,
   effekt1,
   effekt2,
@@ -157,11 +180,12 @@ void (*effektSelect[anzahleffekte]) = {
   effekt4,
   effekt5
 };
-void effekte(unsigned int payload)
+
+void effekte()
 {
   effekt0();
   (*effektSelect[payload])();
-  mqttClient.publish("/lc/output/effekte", payloadraw, length); //payloadraw=byte* BESTÄTIGUNG
+  mqttClient.publish("/lc/output/effekte", payload); //payloadraw=byte* BESTÄTIGUNG
 }
 //Effekte
 void effekt0() //effekt 0 schaltet alles aus
@@ -172,13 +196,14 @@ void effekt0() //effekt 0 schaltet alles aus
 
 void effekt1()
 {
+  Serial.println("effekt1");
   for (int i = 0; i < anzahllampen; i++)
   {
-    i = constrain(i++, 0, anzahllampen - 1);
-    lampstate[i++] = HIGH;
+    i = constrain(i+1, 0, anzahllampen - 1);
+    lampstate[i+1] = HIGH;
     lampstate[i] = LOW;
     effektdelay(1000);
-    render();
+    render(i);
   }
 }
 
@@ -188,15 +213,15 @@ void effekt2()
   {
     i = constrain(i, 0, anzahllampen - 1);
     lampstate[i] = HIGH;
+    render(i);
   }
-  render();
   effektdelay(1000);
   for (int i = 0; i < anzahllampen; i + 2)
   {
     i = constrain(i, 0, anzahllampen - 1);
     lampstate[i] = LOW;
+    render(i);
   }
-  render();
 }
 void effekt3()
 {
